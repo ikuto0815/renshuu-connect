@@ -1,5 +1,6 @@
 # How to configure renshuu-connect
 
+0. Go to ![the releases page](https://github.com/ikuto0815/renshuu-connect/releases) and download a release for your OS and run it.
 1. Go to the yomitan addon settings.
 2. Enable the advanced mode.
 
