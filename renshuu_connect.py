@@ -11,6 +11,7 @@ from pydantic import BaseModel
 from typing import Literal, Any
 import requests
 from concurrent.futures import ProcessPoolExecutor
+import os
 
 class Action(str, Enum):
     version = "version"
@@ -137,6 +138,53 @@ def register_exception(app: FastAPI):
         #print(await request.json())
         content = {'status_code': 10422, 'message': exc_str, 'data': None}
         return JSONResponse(content=content, status_code=status.HTTP_200_OK)
+
+if os.name == 'nt':
+    # Are we running in a PyInstaller bundle
+    # https://pyinstaller.org/en/stable/runtime-information.html#run-time-information
+    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
+        class NullOutput(object):
+            def write(self, string):
+                pass
+
+            def isatty(self):
+                return False
+
+
+        sys.stdout = NullOutput()
+        sys.stderr = NullOutput()
+
+    from pystray import Icon as icon, Menu as menu, MenuItem as item
+    from PIL import Image, ImageDraw
+    import psutil
+
+    def create_image(width, height, color1, color2):
+        # Generate an image and draw a pattern
+        image = Image.new('RGB', (width, height), color1)
+        dc = ImageDraw.Draw(image)
+        dc.rectangle(
+            (width // 2, 0, width, height // 2),
+            fill=color2)
+        dc.rectangle(
+            (0, height // 2, width // 2, height),
+            fill=color2)
+
+        return image
+
+    def on_clicked(icon, item):
+        icon.stop()
+        parent_pid = os.getpid()
+        parent = psutil.Process(parent_pid)
+        for child in parent.children(recursive=True):  # or parent.children() for recursive=False
+            child.kill()
+        parent.kill()
+        sys.exit(0)
+
+    icon('test', create_image(64, 64, 'black', 'white'), menu=menu(
+        item(
+            'Exit',
+            on_clicked
+            ))).run_detached()
 
 app = FastAPI()
 
