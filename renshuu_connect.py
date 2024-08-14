@@ -94,8 +94,12 @@ class RenshuuApi():
         return term.select(".vdict_def_block")[0].get_text().strip()
 
     def schedules(self):
-        response = requests.get(f"{self.baseurl}word/1", headers=self.headers).json()
-        lists = response["words"][0]["presence"]["lists"]
+        response = requests.get(f"{self.baseurl}word/1", headers=self.headers)
+        if not response:
+            print("Getting schedules failed, probably invalid API key")
+            return "invalid api key"
+
+        lists = response.json()["words"][0]["presence"]["lists"]
         return ["{}:{}".format(li["list_id"], li["name"]) for li in lists]
 
     def lookup(self, note: Note):
