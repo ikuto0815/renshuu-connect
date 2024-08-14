@@ -1,3 +1,12 @@
+# What is renshuu-connect?
+
+Renshuu-connect is a small utility that makes it possible to take words looked up in the
+Yomitan browser addon and add them to a vocabulary list on renshuu.org.
+
+Yomichan already has an interface that is used to add cards to anki decks.
+Renshuu-connect provides the same interface. This way yomichan can connect to it
+without having to be modified.
+
 # How to configure renshuu-connect
 
 0. Go to ![the releases page](https://github.com/ikuto0815/renshuu-connect/releases) and download a release for your OS and run it.
