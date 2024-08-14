@@ -84,8 +84,7 @@ class RenshuuApi():
     def japanese(self, term):
         if term["kanji_full"] == "":
             return [self.reading(term)]
-        return [t.split("/")[0] for t in term["aforms"]] + [term["kanji_full"]]
-        #return term["kanji_full"]
+        return [t["term"] for t in term["aforms"]] + [term["kanji_full"]]
 
     def reading(self, term):
         return term["hiragana_full"]
