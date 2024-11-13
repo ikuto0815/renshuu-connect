@@ -93,17 +93,23 @@ class RenshuuApi():
     def english(self, term):
         return term.select(".vdict_def_block")[0].get_text().strip()
 
-    def schedules(self):
-        response = requests.get(f"{self.baseurl}word/1", headers=self.headers)
-        if not response:
-            print("Getting schedules failed, probably invalid API key")
-            return "invalid api key"
+    def apiError(self, response):
+        if "error" in response and response["error"]:
+            return {"result": None, "error": response["error"]}
+        else:
+            return None
 
-        lists = response.json()["words"][0]["presence"]["lists"]
+    def schedules(self):
+        response = requests.get(f"{self.baseurl}word/1", headers=self.headers).json()
+        if (e := self.apiError(response)): return e
+
+        lists = response["words"][0]["presence"]["lists"]
         return ["{}:{}".format(li["list_id"], li["name"]) for li in lists]
 
     def lookup(self, note: Note):
         response = requests.get(f"{self.baseurl}word/search?value={note.japanese()}", headers = self.headers).json()
+        if (e := self.apiError(response)): return e
+
         # compare dictionary id first
         for t in response["words"]:
             if note.jmdict() == t["edict_ent"]:
@@ -136,7 +142,7 @@ def register_exception(app: FastAPI):
     async def validation_exception_handler(request: Request, exc: RequestValidationError):
         exc_str = f'{exc}'.replace('\n', ' ').replace('   ', ' ')
         #print(await request.json())
-        content = {'status_code': 10422, 'message': exc_str, 'data': None}
+        content = {"result": None, "error": exc_str}
         return JSONResponse(content=content, status_code=status.HTTP_200_OK)
 
 if os.name == 'nt':
@@ -187,6 +193,17 @@ if os.name == 'nt':
             ))).run_detached()
 
 app = FastAPI()
+
+async def catch_exceptions_middleware(request: Request, call_next):
+    try:
+        return await call_next(request)
+    except Exception as e:
+        exc_str = f"{type(e).__name__} at line {e.__traceback__.tb_lineno} of {__file__}: {e}"
+        print(exc_str)
+        content = {"result": None, "error": exc_str}
+        return JSONResponse(content=content, status_code=status.HTTP_200_OK)
+
+app.middleware('http')(catch_exceptions_middleware)
 
 register_exception(app)
 
