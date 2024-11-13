@@ -31,3 +31,8 @@ jobs:
     - name: Build
       run: |
         pyinstaller -F --exclude PyQt6 --exclude PyQt5 renshuu_connect.py
+    - name: Upload distributions
+      uses: actions/upload-artifact@v4
+      with:
+        name: release-dists
+        path: dist/renshuu_connect
