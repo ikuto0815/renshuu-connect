@@ -4,14 +4,18 @@ import uvicorn
 from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 
 from enum import Enum
 from pydantic import BaseModel
 from typing import Literal, Any
 import requests
 from concurrent.futures import ProcessPoolExecutor
+from collections import deque
 import os
+import sys
+
+log = deque(maxlen=100)
 
 class Action(str, Enum):
     version = "version"
@@ -145,21 +149,18 @@ def register_exception(app: FastAPI):
         content = {"result": None, "error": exc_str}
         return JSONResponse(content=content, status_code=status.HTTP_200_OK)
 
+class LogOutput(object):
+    def write(self, string):
+        log.append(string)
+        pass
+
+    def isatty(self):
+        return False
+
+sys.stdout = LogOutput()
+sys.stderr = LogOutput()
+
 if os.name == 'nt':
-    # Are we running in a PyInstaller bundle
-    # https://pyinstaller.org/en/stable/runtime-information.html#run-time-information
-    if getattr(sys, 'frozen', False) and hasattr(sys, '_MEIPASS'):
-        class NullOutput(object):
-            def write(self, string):
-                pass
-
-            def isatty(self):
-                return False
-
-
-        sys.stdout = NullOutput()
-        sys.stderr = NullOutput()
-
     from pystray import Icon as icon, Menu as menu, MenuItem as item
     from PIL import Image, ImageDraw
     import psutil
@@ -214,6 +215,14 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.get("/", response_class=PlainTextResponse)
+async def root(showlog: str="0"):
+    if showlog == "0":
+        return ""
+    msg = "Last 100 log messages:\n\n"
+    msg += "".join(log)
+    return msg
 
 @app.post("/")
 async def root(request: EmptyRequest | AddNoteRequest | CanAddNotesRequest):
