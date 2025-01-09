@@ -104,11 +104,18 @@ class RenshuuApi():
             return None
 
     def schedules(self):
-        response = requests.get(f"{self.baseurl}word/1", headers=self.headers).json()
+        response = requests.get(f"{self.baseurl}lists", headers=self.headers).json()
         if (e := self.apiError(response)): return e
 
-        lists = response["words"][0]["presence"]["lists"]
-        return ["{}:{}".format(li["list_id"], li["name"]) for li in lists]
+        # get lists of groups of vocab lists
+        lists = [x for x in response["termtype_groups"] if x["termtype"] == "vocab"][0] or None
+        if not lists: return []
+
+        # list of lists in "it:groupname:title" format
+        lists = [[y["list_id"] + ":" + x["group_title"] + ":" + y["title"] for y in x["lists"]] for x in lists["groups"]]
+        # flatten list
+        lists = [x for xs in lists for x in xs]
+        return lists
 
     def lookup(self, note: Note):
         response = requests.get(f"{self.baseurl}word/search?value={note.japanese()}", headers = self.headers).json()
@@ -130,13 +137,18 @@ class RenshuuApi():
     def addNote(self, note: Note):
         termId = self.lookup(note)
 
-        if note.deckName not in self.schedules():
-            return
-
         listId = note.deckName.split(":")[0]
+
+        #if listId not in [x.split(":")[0] for x in self.schedules()]:
+        #    return
+
         if termId is not None:
-            requests.put(f"{self.baseurl}word/{termId}",
-                         headers = self.headers, json = {"list_id": listId})
+            resp = requests.put(f"{self.baseurl}word/{termId}",
+                               headers = self.headers, json = {"list_id": listId+""})
+            if not resp.ok and resp.json()["error"] != "This term is already present in the schedule.":
+                print(resp.content)
+                content = {"result": None, "error": resp.json()["error"]}
+                return JSONResponse(content=content, status_code=status.HTTP_200_OK)
             return 1
         print("no match")
         #raise HTTPException(status_code = 500, detail = "No matching entry found")
