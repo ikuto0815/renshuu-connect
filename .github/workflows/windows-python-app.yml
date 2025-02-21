@@ -5,7 +5,7 @@ name: Windows Python application
 
 on:
   push:
-    branches: [ "master" ]
+    branches: [ "master", "debug" ]
   pull_request:
     branches: [ "master" ]
 
@@ -30,7 +30,7 @@ jobs:
         pip install -r requirements.txt
     - name: Build
       run: |
-        pyinstaller -F --exclude PyQt6 --exclude PyQt5 renshuu_connect.py
+        pyinstaller -w -F -i kao.ico --add-data kao.png:. renshuu_connect.py
     - name: Upload distributions
       uses: actions/upload-artifact@v4
       with:
