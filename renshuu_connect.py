@@ -176,7 +176,6 @@ if os.name == 'nt':
     from pystray import Icon as icon, Menu as menu, MenuItem as item
     from PIL import Image, ImageDraw
     import psutil
-    import pkgutil
 
     def on_clicked(icon, item):
         icon.stop()
