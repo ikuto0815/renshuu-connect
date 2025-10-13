@@ -223,6 +223,11 @@ async def root(showlog: str="0"):
     msg += "".join(log)
     return msg
 
+@app.get("/about", response_class=PlainTextResponse)
+async def root(showlog: str = "0"):
+    pid = os.getpid()
+    return f"renshuu-connect is running!\nPID = {pid}"
+
 @app.post("/")
 async def root(request: EmptyRequest | AddNoteRequest | CanAddNotesRequest):
     api = RenshuuApi(request.key)
