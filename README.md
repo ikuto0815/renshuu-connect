@@ -46,7 +46,9 @@ Using github issues to report problems works too if you already have a github ac
 
 ## yomitan shows "Anki connection failure."
 
-Check if renshuu_connect is actually running. It will show a icon in the tray bar nect to the clock when active.
+Check if renshuu_connect is actually running:
+- On Windows it will show an icon in the tray bar next to the clock when active.
+- On Linux and Windows you can go to "http://127.0.0.1:8765/about". If renshuu_connect is running, it will tell you so and also give you the PID.
 
 ![tray icon](img/tray.png "tray")
 
