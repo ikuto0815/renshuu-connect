@@ -46,6 +46,32 @@ Using github issues to report problems works too if you already have a github ac
     - English: {glossary-brief}
     - jmdictId: {sequence}
 
+## Autostart on Linux
+
+A systemctl service can be used to automatically start renshuu_connect on linux.
+This should work on almost all modern linux distros.
+
+To do this, create a file called `.config/systemd/user/renshuu_connect.service` in your home directory.
+You might have to create the parent directories if they dont exist yet.
+Add the following content to the file and make sure to change the path in the `ExecStart` line so it points to the actual location of the program on your system.
+```
+[Unit]
+Description=renshuu_connect
+
+[Service]
+ExecStart=/home/<your-username>/path/to/renshuu_connect
+
+[Install]
+WantedBy=default.target
+```
+
+After creating the file, call the command `systemctl enable --user renshuu_connect.service` on the terminal, this will autostart the service on login.
+
+Then for the initial start call `systemctl start --user renshuu_connect.service`.
+
+With `systemctl status --user renshuu_connect.service` you can check if the service is running.
+
+
 # Common issues
 
 ## yomitan shows "Anki connection failure."
