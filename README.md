@@ -30,7 +30,7 @@ Using github issues to report problems works too if you already have a github ac
 
 4. Click on "Customize handlebars templates..."
     ![card templates](img/03_card_templates.png "card templates")
-   1. Paste the following at the beginning of the text box:
+   1. Paste the following at the beginning of the text box: (Leave the original contents of the textbox untouched. Add the three lines and don't remove whats already there)
 
     ```
     {{#*inline "sequence"}}
