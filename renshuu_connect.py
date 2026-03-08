@@ -1,207 +1,95 @@
 #!/bin/env python
 import uvicorn
+import logging
+from logging.handlers import RotatingFileHandler
 
-from fastapi import FastAPI, Request, status
+from fastapi import FastAPI, Request, status, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, PlainTextResponse
+from typing import Any
 
-from enum import Enum
-from pydantic import BaseModel
-from typing import Literal, Any
-import requests
-from concurrent.futures import ProcessPoolExecutor
-from collections import deque
+from models import (
+    Action, EmptyRequest, AddNoteRequest, CanAddNotesRequest,
+    CanAddNotesWithErrorDetailRequest, FindNotesRequest, MultiRequest, MultiActionRequest, BaseRequest, RequestUnion
+)
+from renshuu_api import RenshuuApi
+from renshuu_service import RenshuuService
+from database import init_db, get_db
+from sqlalchemy.orm import Session
+from contextlib import asynccontextmanager
 import os
-import sys
-
-log = deque(maxlen=100)
-
-class Action(str, Enum):
-    version = "version"
-    addNote = "addNote"
-    canAddNotes = "canAddNotes"
-    deckNames = "deckNames"
-    modelNames = "modelNames"
-    modelFieldNames = "modelFieldNames"
-    storeMediaFile = "storeMediaFile"
-    #multi = "multi"
 
 
-class Note(BaseModel):
-    fields: dict
-    deckName: str
+def setup_logging():
+    # Use DATA_DIR environment variable if set, otherwise use current directory
+    log_dir = os.getenv("LOGS_DIR", "logs")
+    os.makedirs(log_dir, exist_ok=True)
+    log_file = os.path.join(log_dir, "renshuu_connect.log")
 
-    def japanese(self):
-        return self.fields["Japanese"].split("/")[0]
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.DEBUG)
 
-    def reading(self):
-        japanese = self.fields["Japanese"].split("/")
-        if japanese[-1] != "":
-            return japanese[-1]
-        else:
-            return japanese[0]
+    # Create handlers
+    root_logger.handlers.clear()
 
-    def english(self):
-        return self.fields["English"]
+    formatter = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
 
-    def jmdict(self):
-        if "jmdictId" in self.fields.keys():
-            return self.fields["jmdictId"]
-        else:
-            return None
+    # Console handler - DEBUG level for verbose console output
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.DEBUG)
+    console_handler.setFormatter(formatter)
+    root_logger.addHandler(console_handler)
 
-class NoteParam(BaseModel):
-    note: Note
+    file_handler = RotatingFileHandler(
+        log_file,
+        maxBytes=1 * 1024 * 1024,  # 1MB
+        backupCount=5,
+        encoding='utf-8'
+    )
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(formatter)
+    root_logger.addHandler(file_handler)
 
-class Notes(BaseModel):
-    notes: list[Note]
+    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 
-class BaseRequest(BaseModel):
-    action: Action
-    version: Literal[2]
-    key: str
+    return root_logger
 
-class EmptyRequest(BaseRequest):
-    action: Literal[Action.version, Action.deckNames, Action.modelNames, Action.modelFieldNames, Action.storeMediaFile]
 
-class AddNoteRequest(BaseRequest):
-    action: Literal[Action.addNote]
-    params: NoteParam
+logger = setup_logging()
 
-class CanAddNotesRequest(BaseRequest):
-    action: Literal[Action.canAddNotes]
-    params: Notes
-
-class StoreMediaFile(BaseRequest):
-    action: Literal[Action.storeMediaFile]
-    params: Any
-
-class RenshuuApi():
-    session: str
-    baseurl: str = "https://api.renshuu.org/v1/"
-    headers: dict
-
-    def __init__(self, apikey: str):
-        self.session = apikey
-        self.headers = {"Authorization": f"Bearer {apikey}"}
-
-    def japanese(self, term):
-        if term["kanji_full"] == "":
-            return [self.reading(term)]
-        return [t["term"] for t in term["aforms"]] + [term["kanji_full"]]
-
-    def reading(self, term):
-        return term["hiragana_full"]
-
-    def english(self, term):
-        return term.select(".vdict_def_block")[0].get_text().strip()
-
-    def apiError(self, response):
-        if "error" in response and response["error"]:
-            return {"result": None, "error": response["error"]}
-        else:
-            return None
-
-    def schedules(self):
-        response = requests.get(f"{self.baseurl}lists", headers=self.headers).json()
-        if (e := self.apiError(response)): return e
-
-        # get lists of groups of vocab lists
-        lists = [x for x in response["termtype_groups"] if x["termtype"] == "vocab"][0] or None
-        if not lists: return []
-
-        # list of lists in "it:groupname:title" format
-        lists = [[y["list_id"] + ":" + x["group_title"] + ":" + y["title"] for y in x["lists"]] for x in lists["groups"]]
-        # flatten list
-        lists = [x for xs in lists for x in xs]
-        return lists
-
-    def lookup(self, note: Note):
-        response = requests.get(f"{self.baseurl}word/search?value={note.japanese()}", headers = self.headers).json()
-        if (e := self.apiError(response)): return e
-
-        # compare dictionary id first
-        for t in response["words"]:
-            if note.jmdict() == t["edict_ent"]:
-                return t["id"]
-        # compare kanji+reading as fallback
-        for t in response["words"]:
-            if (self.reading(t) == note.reading() and
-                note.japanese() in self.japanese(t)):
-                return t["id"]
-
-    def canAddNote(self, note: Note):
-        return True
-
-    def addNote(self, note: Note):
-        termId = self.lookup(note)
-
-        listId = note.deckName.split(":")[0]
-
-        #if listId not in [x.split(":")[0] for x in self.schedules()]:
-        #    return
-
-        if termId is not None:
-            resp = requests.put(f"{self.baseurl}word/{termId}",
-                               headers = self.headers, json = {"list_id": listId+""})
-            if not resp.ok and resp.json()["error"] != "This term is already present in the schedule.":
-                print(resp.content)
-                content = {"result": None, "error": resp.json()["error"]}
-                return JSONResponse(content=content, status_code=status.HTTP_200_OK)
-            return 1
-        print("no match")
-        #raise HTTPException(status_code = 500, detail = "No matching entry found")
 
 def register_exception(app: FastAPI):
     @app.exception_handler(RequestValidationError)
     async def validation_exception_handler(request: Request, exc: RequestValidationError):
         exc_str = f'{exc}'.replace('\n', ' ').replace('   ', ' ')
-        #print(await request.json())
+        logger.warning(f"Validation error: {exc_str}")
+        logger.debug(f"Failing request body: {await request.body()}")
         content = {"result": None, "error": exc_str}
-        return JSONResponse(content=content, status_code=status.HTTP_200_OK)
+        return JSONResponse(content=content, status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-class LogOutput(object):
-    def write(self, string):
-        log.append(string)
-        pass
 
-    def isatty(self):
-        return False
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    logger.debug("Initializing database...")
+    init_db()
+    yield
 
-sys.stdout = LogOutput()
-sys.stderr = LogOutput()
 
-if os.name == 'nt':
-    from pystray import Icon as icon, Menu as menu, MenuItem as item
-    from PIL import Image, ImageDraw
-    import psutil
+app = FastAPI(lifespan=lifespan)
 
-    def on_clicked(icon, item):
-        icon.stop()
-        parent_pid = os.getpid()
-        parent = psutil.Process(parent_pid)
-        for child in parent.children(recursive=True):  # or parent.children() for recursive=False
-            child.kill()
-        parent.kill()
-        sys.exit(0)
-
-    icon('test', Image.open(os.path.dirname(__file__) + '/kao.png'), menu=menu(
-        item(
-            'Exit',
-            on_clicked
-            ))).run_detached()
-
-app = FastAPI()
 
 async def catch_exceptions_middleware(request: Request, call_next):
     try:
         return await call_next(request)
     except Exception as e:
         exc_str = f"{type(e).__name__} at line {e.__traceback__.tb_lineno} of {__file__}: {e}"
-        print(exc_str)
+        logger.error(exc_str, exc_info=True)
         content = {"result": None, "error": exc_str}
-        return JSONResponse(content=content, status_code=status.HTTP_200_OK)
+        return JSONResponse(content=content, status_code=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 app.middleware('http')(catch_exceptions_middleware)
 
@@ -215,41 +103,96 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 @app.get("/", response_class=PlainTextResponse)
-async def root(showlog: str="0"):
-    if showlog == "0":
-        return ""
-    msg = "Last 100 log messages:\n\n"
-    msg += "".join(log)
-    return msg
+async def root():
+    return ""
+
 
 @app.get("/about", response_class=PlainTextResponse)
-async def root(showlog: str = "0"):
+async def about():
     pid = os.getpid()
     return f"renshuu-connect is running!\nPID = {pid}"
 
-@app.post("/")
-async def root(request: EmptyRequest | AddNoteRequest | CanAddNotesRequest):
-    api = RenshuuApi(request.key)
+
+@app.delete("/drop_cache/{list_id}")
+async def drop_cache(list_id: str, db: Session = Depends(get_db)):
+    """
+    Drop the cache for a specific list.
+    Deletes all ListMembership records with the given list_id.
+    """
+
+    from renshuu_api import RenshuuApi
+    api = RenshuuApi("")
+    service = RenshuuService(api, db)
+
+    result = service.drop_list_cache(list_id)
+    return result
+
+
+def handle_action(request: RequestUnion, service: RenshuuService) -> Any:
+    """
+    Handle a single action request and return the result.
+    This function is used both for regular requests and for sub-actions in multi requests.
+    """
+    logger.debug(f'Handling action: {request.action}')
 
     if request.action is Action.deckNames:
-        return api.schedules()
+        return service.get_schedules()
     elif request.action is Action.modelNames:
         return ["Default", "with jmdictId"]
     elif request.action is Action.modelFieldNames:
         return ["Japanese", "English", "jmdictId"]
     elif request.action is Action.canAddNotes:
-        with ProcessPoolExecutor() as executor:
-            resp = executor.map(api.canAddNote, request.params.notes)
-        return list(resp)
+        # Note: ProcessPoolExecutor can't share database sessions
+        # TODO: We can parallelize the API requests, although in the same thread, API is mostly IO bound
+        resp = [service.can_add_note(note)
+                for note in request.params.notes]
+        return resp
+    elif request.action is Action.canAddNotesWithErrorDetail:
+        resp = [service.can_add_notes_with_error_detail(
+            note) for note in request.params.notes]
+        return resp
     elif request.action is Action.addNote:
-        return api.addNote(request.params.note)
-    #elif request.action is Action.multi:
-    #    return "TODO"
+        return service.add_note(request.params.note)
+    elif request.action is Action.findNotes:
+        return service.find_notes(request.params.query)
     elif request.action is Action.storeMediaFile:
         return ""
     elif request.action is Action.version:
         return 2
+    elif request.action is Action.guiBrowse:
+        return []
+    else:
+        logger.debug(f"Unhandled action: {request.action}")
+        return None
+
+
+@app.post("/")
+async def root(
+    request: EmptyRequest | AddNoteRequest | CanAddNotesRequest | CanAddNotesWithErrorDetailRequest | FindNotesRequest | MultiRequest,
+    db: Session = Depends(get_db)
+):
+    api = RenshuuApi(request.key)
+    service = RenshuuService(api, db)
+
+    logger.debug(f'Request action: {request.action}')
+
+    # Handle multi action
+    if request.action is Action.multi:
+        results = []
+        for action_request in request.params.actions:
+            sub_request = action_request.to_request(request.key)
+            result = handle_action(sub_request, service)
+            results.append(result)
+        return results
+
+    # Handle regular single actions
+    return handle_action(request, service)
 
 if __name__ == "__main__":
-    uvicorn.run(app, port=8765, log_level="warning")
+    if os.name == 'nt':
+        import windows
+        windows.setup_tray_icon()
+    logger.info("Starting renshuu-connect server on port 8765")
+    uvicorn.run(app, port=8765, log_config=None)

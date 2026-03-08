@@ -1,2 +1,13 @@
 /build
 /dist
+/venv
+
+.DS_Store
+
+__pycache__
+
+/.vscode
+
+*.db
+
+logs/

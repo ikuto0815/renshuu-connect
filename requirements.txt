@@ -1,6 +1,7 @@
 requests
 fastapi
 uvicorn
+sqlalchemy ~= 2.0
 pillow; sys_platform == 'win32'
 psutil; sys_platform == 'win32'
 pystray; sys_platform == 'win32' 
