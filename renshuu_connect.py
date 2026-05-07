@@ -14,6 +14,7 @@ from concurrent.futures import ProcessPoolExecutor
 from collections import deque
 import os
 import sys
+import hashlib
 
 log = deque(maxlen=100)
 
@@ -27,6 +28,11 @@ class Action(str, Enum):
     storeMediaFile = "storeMediaFile"
     #multi = "multi"
 
+# see issue #4
+# yomitan requests the names of the schedules indefinitely for some reason
+# when there are multiple yomitan config pages open at the same time.
+# Cache the schedule names to prevent flooding the renshuu API with requests.
+schedules_cache = {}
 
 class Note(BaseModel):
     fields: dict
@@ -104,6 +110,10 @@ class RenshuuApi():
             return None
 
     def schedules(self):
+        session_hash = hashlib.md5(self.session.encode()).hexdigest()
+        if session_hash in schedules_cache.keys():
+            return schedules_cache[session_hash]
+
         response = requests.get(f"{self.baseurl}lists", headers=self.headers).json()
         if (e := self.apiError(response)): return e
 
@@ -115,6 +125,9 @@ class RenshuuApi():
         lists = [[y["list_id"] + ":" + x["group_title"] + ":" + y["title"] for y in x["lists"]] for x in lists["groups"]]
         # flatten list
         lists = [x for xs in lists for x in xs]
+
+        schedules_cache[session_hash] = lists
+
         return lists
 
     def lookup(self, note: Note):
@@ -222,6 +235,11 @@ async def root(showlog: str="0"):
     msg = "Last 100 log messages:\n\n"
     msg += "".join(log)
     return msg
+
+@app.get("/clear_cache", response_class=PlainTextResponse)
+async def root():
+    schedules_cache.clear()
+    return "schedule name cache cleared"
 
 @app.get("/about", response_class=PlainTextResponse)
 async def root(showlog: str = "0"):

@@ -111,3 +111,13 @@ Same word from different dictionary that can't be added:
 ![](img/invalid-dict.png)
 
 Support to add words from other dictionaries might be added in the future.
+
+## Some of my renshuu lists don't show up in the yomitan config page
+
+To reduce the number of calls to the renshuu API, renshuu_connect remembers the names of your lists after the first time they were requested from renshuu.
+If you add a new list afterwards and go to the yomitan settings page, that new list will not show up.
+
+There are two ways to fix this issue.
+
+ * Go to the page http://127.0.0.1:8765/clear_cache in your browser. This will delete the old list of lists inside renshuu_connect, so it will fetch a new one again next time.
+ * Alternatively you can also just restart renshuu_connect.
